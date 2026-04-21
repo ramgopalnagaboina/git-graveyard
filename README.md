@@ -6,8 +6,6 @@ Every codebase is a graveyard. The auth system you ripped out, the caching layer
 
 `git-graveyard` is the museum.
 
-![graveyard interesting running on pallets/click](./docs/hero.png)
-
 > Running `graveyard interesting` on [`pallets/click`](https://github.com/pallets/click) surfaces the exact commit where `click.py` stopped being a 1,686-line script and became a package — on April 26, 2014. You can read the whole original file with `graveyard show 943`. That's the pitch.
 
 ---

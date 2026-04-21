@@ -18,3 +18,7 @@ venv/
 .idea/
 .DS_Store
 *.swp
+
+# one-off launch tooling — not part of the product
+scripts/
+docs/
