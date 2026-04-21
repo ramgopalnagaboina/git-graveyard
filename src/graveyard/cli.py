@@ -10,6 +10,7 @@ from . import __version__
 from . import db as dbmod
 from . import indexer
 from . import search as search_mod
+from . import views as views_mod
 from .render import fmt_date, fmt_when
 
 console = Console(stderr=False)
@@ -190,6 +191,71 @@ def search(
         if m.truncated:
             console.print(f"   [dim]…(+{m.truncated} more matching line{'s' if m.truncated != 1 else ''})[/]")
         console.print()
+
+
+@cli.command()
+@click.option("--limit", default=5, show_default=True, help="Rows per section.")
+def interesting(limit: int) -> None:
+    """The screenshottable view: biggest deaths, zombies, bloodiest files."""
+    _, conn = _open_db_or_die()
+    total = dbmod.count_corpses(conn)
+    if total == 0:
+        console.print("[dim]graveyard is empty. run `graveyard index` first.[/]")
+        return
+
+    console.print(f"[magenta]🪦 the most interesting corpses[/] [dim]({total} total)[/]\n")
+
+    # ─── biggest ───
+    console.print("[bold magenta]═══ biggest deaths ═══[/]")
+    biggest = views_mod.biggest(conn, limit=limit)
+    if not biggest:
+        console.print("  [dim]none[/]")
+    for b in biggest:
+        subj = (b.commit_subject or "")[:60]
+        console.print(
+            f"  [bold]#{b.id:<5}[/] [yellow]{b.line_count:>5}[/] lines  "
+            f"[cyan]{b.file_path}[/]"
+        )
+        console.print(
+            f"        [dim]{b.commit_short} · {b.author_name} · "
+            f"{fmt_date(b.commit_time)} ({fmt_when(b.commit_time)})[/]"
+        )
+        if subj:
+            console.print(f'        [italic dim]"{subj}"[/]')
+    console.print()
+
+    # ─── zombies ───
+    console.print(
+        f"[bold magenta]═══ zombie files ═══[/]  "
+        f"[dim](died ≥2x with ≥{views_mod.ZOMBIE_BIG_LINES} lines each)[/]"
+    )
+    zoms = views_mod.zombies(conn, limit=limit)
+    if not zoms:
+        console.print("  [dim]none — every file in this graveyard died only once[/]")
+    for z in zoms:
+        span = (
+            f"{fmt_date(z.first_death)} → {fmt_date(z.last_death)}"
+            if z.first_death != z.last_death
+            else fmt_date(z.first_death)
+        )
+        console.print(
+            f"  [cyan]{z.file_path}[/]  [yellow]{z.deaths}×[/] [dim]({z.total_lines} lines total)[/]"
+        )
+        console.print(
+            f"        [dim]{span} · biggest corpse: #{z.biggest_corpse_id}[/]"
+        )
+    console.print()
+
+    # ─── bloodiest ───
+    console.print("[bold magenta]═══ bloodiest files ═══[/]  [dim](most distinct deletions)[/]")
+    blood = views_mod.bloodiest(conn, limit=limit)
+    for b in blood:
+        console.print(
+            f"  [cyan]{b.file_path}[/]  [yellow]{b.deaths} deaths[/] "
+            f"[dim]({b.total_lines} lines · biggest: #{b.biggest_corpse_id})[/]"
+        )
+    console.print()
+    console.print("[dim]use[/] [bold]graveyard show <id>[/] [dim]to see any of these in full.[/]")
 
 
 if __name__ == "__main__":
