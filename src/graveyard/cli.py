@@ -6,8 +6,11 @@ from pathlib import Path
 import click
 from rich.console import Console
 
+import json
+
 from . import __version__
 from . import db as dbmod
+from . import excludes as excludes_mod
 from . import indexer
 from . import search as search_mod
 from . import views as views_mod
@@ -28,7 +31,8 @@ def _db_path_for_cwd() -> tuple[Path, Path]:
 
 
 @cli.command()
-def status() -> None:
+@click.option("--excludes", "show_excludes", is_flag=True, help="List the file patterns excluded at index time.")
+def status(show_excludes: bool) -> None:
     """Report what's buried here."""
     try:
         repo_root, db_path = _db_path_for_cwd()
@@ -41,6 +45,21 @@ def status() -> None:
     n = dbmod.count_corpses(conn)
     click.echo(f"graveyard: {n} corpse{'s' if n != 1 else ''}")
     click.echo(f"  db: {db_path.relative_to(repo_root)}")
+    excludes_row = conn.execute("SELECT value FROM meta WHERE key = 'excludes'").fetchone()
+    if excludes_row:
+        try:
+            patterns = json.loads(excludes_row["value"])
+        except json.JSONDecodeError:
+            patterns = []
+        click.echo(f"  filters: {len(patterns)} exclude pattern{'s' if len(patterns) != 1 else ''}")
+        if show_excludes:
+            for p in patterns:
+                click.echo(f"    - {p}")
+        else:
+            click.echo("    (run `graveyard status --excludes` to see them)")
+    skipped_row = conn.execute("SELECT value FROM meta WHERE key = 'files_skipped_excluded'").fetchone()
+    if skipped_row:
+        click.echo(f"  filtered at index: {skipped_row['value']} file change(s)")
 
 
 @cli.command()
@@ -64,7 +83,34 @@ def status() -> None:
     default=True,
     help="Wipe the existing graveyard before indexing (default: yes).",
 )
-def index(limit: int, all_commits: bool, min_lines: int, rebuild: bool) -> None:
+@click.option(
+    "--exclude",
+    "user_excludes",
+    multiple=True,
+    metavar="PATTERN",
+    help="Add a path pattern to skip (repeatable). Combined with built-in defaults.",
+)
+@click.option(
+    "--include",
+    "user_includes",
+    multiple=True,
+    metavar="PATTERN",
+    help="Force-include paths matching this pattern even if a default exclude would skip them (repeatable).",
+)
+@click.option(
+    "--no-default-excludes",
+    is_flag=True,
+    help="Don't apply the built-in exclude list (lockfiles, snapshots, generated, vendored, minified).",
+)
+def index(
+    limit: int,
+    all_commits: bool,
+    min_lines: int,
+    rebuild: bool,
+    user_excludes: tuple[str, ...],
+    user_includes: tuple[str, ...],
+    no_default_excludes: bool,
+) -> None:
     """Walk this repo's history and bury every real deletion."""
     try:
         repo_root, db_path = _db_path_for_cwd()
@@ -77,10 +123,20 @@ def index(limit: int, all_commits: bool, min_lines: int, rebuild: bool) -> None:
     if rebuild:
         dbmod.reset(conn)
 
+    excludes = excludes_mod.resolve(
+        list(user_excludes), list(user_includes), use_defaults=not no_default_excludes
+    )
+
     cap = None if all_commits else limit
     cap_label = "all commits" if cap is None else f"last {cap} commit{'s' if cap != 1 else ''}"
+    n_excludes = len(excludes.raw_excludes)
+    n_includes = len(excludes.raw_includes)
+    filter_label = (
+        f"{n_excludes} exclude pattern{'s' if n_excludes != 1 else ''}"
+        + (f", {n_includes} include override{'s' if n_includes != 1 else ''}" if n_includes else "")
+    )
     console.print(
-        f"[magenta]🪦 digging…[/magenta] [dim]({cap_label}, min {min_lines} lines)[/dim]"
+        f"[magenta]🪦 digging…[/magenta] [dim]({cap_label}, min {min_lines} lines, {filter_label})[/dim]"
     )
 
     last_print = 0
@@ -97,12 +153,16 @@ def index(limit: int, all_commits: bool, min_lines: int, rebuild: bool) -> None:
             )
 
     stats = indexer.index_repo(
-        repo_root, conn, limit=cap, min_lines=min_lines, on_commit=progress
+        repo_root, conn,
+        limit=cap, min_lines=min_lines, excludes=excludes, on_commit=progress,
     )
 
     dbmod.set_meta(conn, "indexed_at", dt.datetime.now().isoformat(timespec="seconds"))
     dbmod.set_meta(conn, "commits_walked", str(stats.commits_walked))
     dbmod.set_meta(conn, "corpses", str(stats.corpses))
+    dbmod.set_meta(conn, "excludes", json.dumps(excludes.raw_excludes))
+    dbmod.set_meta(conn, "includes", json.dumps(excludes.raw_includes))
+    dbmod.set_meta(conn, "files_skipped_excluded", str(stats.files_skipped_excluded))
 
     console.print()
     console.print(
@@ -111,6 +171,10 @@ def index(limit: int, all_commits: bool, min_lines: int, rebuild: bool) -> None:
     )
     if stats.commits_skipped_merge:
         console.print(f"   [dim]({stats.commits_skipped_merge} merge(s) skipped)[/dim]")
+    if stats.files_skipped_excluded:
+        console.print(
+            f"   [dim]({stats.files_skipped_excluded} file change(s) skipped by exclude filters)[/dim]"
+        )
     console.print(f"   [dim]db: {db_path.relative_to(repo_root)}[/dim]")
 
 

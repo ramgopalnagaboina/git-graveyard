@@ -16,6 +16,8 @@ from typing import Callable, Iterator
 
 import pygit2
 
+from .excludes import CompiledFilter, resolve as resolve_filter
+
 # Anything below this Jaccard similarity (normalized lines) means
 # the deletion isn't a re-appearance of the same code elsewhere.
 MOVE_SIMILARITY_THRESHOLD = 0.8
@@ -26,6 +28,7 @@ class IndexStats:
     commits_walked: int = 0
     commits_skipped_merge: int = 0
     corpses: int = 0
+    files_skipped_excluded: int = 0
 
 
 def find_repo_root(start: Path) -> Path:
@@ -138,8 +141,11 @@ def index_repo(
     *,
     limit: int | None,
     min_lines: int,
+    excludes: CompiledFilter | None = None,
     on_commit: Callable[[IndexStats, "pygit2.Commit"], None] | None = None,
 ) -> IndexStats:
+    if excludes is None:
+        excludes = resolve_filter([], [], use_defaults=False)
     repo = pygit2.Repository(str(repo_root))
     if repo.is_empty:
         return IndexStats()
@@ -196,6 +202,9 @@ def index_repo(
             if _is_rename(patch):
                 continue
             old_path = patch.delta.old_file.path
+            if excludes.is_excluded(old_path):
+                stats.files_skipped_excluded += 1
+                continue
             for hunk in patch.hunks:
                 for start, end, raw_lines in _extract_deletion_runs(hunk, min_lines):
                     deletion_norm = set(_normalize(raw_lines))

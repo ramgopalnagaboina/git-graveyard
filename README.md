@@ -96,6 +96,19 @@ Not every `-` in a diff is a death. Renames look like deletions. Refactors look 
 
 **Heuristic:** a corpse is a contiguous block of 5+ non-trivial lines that disappeared in a commit and didn't show up (fuzzy-matched) elsewhere in the same commit. Pygit2's rename detection runs first, so file renames don't even reach the heuristic. The defaults are the result of squinting at a lot of `click` history; tune with `--min-lines`.
 
+### What's excluded by default
+
+Lockfiles, Jest snapshots, generated code, vendored deps, and minified bundles are filtered at index time — otherwise `yarn.lock` churn drowns out every real finding on a JS repo. The full default list lives in `src/graveyard/excludes.py` and covers `*.lock`, `*.snap`, `**/generated/**`, `**/__generated__/**`, `**/vendor/**`, `**/node_modules/**`, `**/dist/**`, `**/build/**`, `*.min.js`, `*.min.css`, and the common language-specific lockfiles (`package-lock.json`, `Cargo.lock`, `poetry.lock`, `uv.lock`, `Gemfile.lock`, etc.).
+
+Override at index time:
+
+```sh
+graveyard index --exclude '**/my-special-gen/**'   # add to defaults
+graveyard index --include 'yarn.lock'              # force-include a default-excluded pattern
+graveyard index --no-default-excludes              # turn them all off
+graveyard status --excludes                        # see what the current graveyard used
+```
+
 ## Roadmap
 
 **v2 — semantic search.** `graveyard search --semantic "the old rate limiter"` should surface it even if the variable was named `throttle_check`. Local embeddings (fastembed), no API calls, no keys, no cloud.
