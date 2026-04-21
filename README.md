@@ -1,32 +1,40 @@
 # git-graveyard 🪦
 
-> A respectful tool for digging up dead code.
+**A respectful tool for digging up dead code.**
 
 Every codebase is a graveyard. The auth system you ripped out, the caching layer from 2022, that weird cron job someone deleted in a merge conflict — it's all still in the git history. It's just unfindable, because `git log -S` has the UX of a 1998 Unix man page.
 
 `git-graveyard` is the museum.
 
-## status
+![graveyard interesting running on pallets/click](./docs/hero.png)
 
-Chaotic WIP. Buried so far: `index`, `search`, `interesting`, `show`. Semantic search (embed-and-find) and `serve` (a local web UI) are next.
+> Running `graveyard interesting` on [`pallets/click`](https://github.com/pallets/click) surfaces the exact commit where `click.py` stopped being a 1,686-line script and became a package — on April 26, 2014. You can read the whole original file with `graveyard show 943`. That's the pitch.
 
-## install
+---
+
+## Status
+
+Chaotic WIP. Shipped: `index`, `search`, `interesting`, `show`. Coming: semantic search, local web UI.
+
+## Install
 
 Requires Python 3.11+.
 
-```sh
+​```bash
 pip install git+https://github.com/ramgopalnagaboina/git-graveyard.git
-```
+​```
 
-## a real example: clicking around in pallets/click
+## Quickstart
 
-```sh
-cd /path/to/click
+​```bash
+cd /path/to/any/repo
 graveyard index --all          # walks the whole history
 graveyard interesting          # the screenshottable view
-```
+​```
 
-```
+Sample output from running on `pallets/click`:
+
+​```
 🪦 the most interesting corpses (952 total)
 
 ═══ biggest deaths ═══
@@ -43,50 +51,57 @@ graveyard interesting          # the screenshottable view
 ═══ zombie files ═══  (died ≥2x with ≥50 lines each)
   docs/_themes/click/static/click.css_t  2× (799 lines total)
         2015-08-07 → 2018-09-07 · biggest corpse: #838
-  src/click/core.py  2× (485 lines total)
+  src/click/core.py                      2× (485 lines total)
         2023-08-19 · biggest corpse: #275
 
 ═══ bloodiest files ═══  (most distinct deletions)
   src/click/core.py        89 deaths (1338 lines · biggest: #275)
   CHANGES.rst              36 deaths ( 642 lines · biggest: #694)
   src/click/_compat.py     31 deaths ( 396 lines · biggest: #536)
+​```
 
-use graveyard show <id> to see any of these in full.
-```
+## The four commands
 
-That first row — `#943` — is the day click stopped being a single 1,686-line file and became a package. You can `graveyard show 943` to read the whole original module verbatim.
+**`index`** — walk this repo's history and bury every real deletion.
 
-## the four commands
-
-```sh
-graveyard index                   # walk this repo's history (default: last 1000 commits)
+​```bash
+graveyard index                   # default: last 1000 commits
 graveyard index --all             # everything (slow on big repos)
 graveyard index --min-lines 3     # finer-grained corpses
+​```
 
-graveyard search 'def setUp'                  # literal substring, case-insensitive
+**`search`** — grep the dead.
+
+​```bash
+graveyard search 'def setUp'                  # literal, case-insensitive
 graveyard search --regex 'TODO\(.*\)'         # regex
 graveyard search --file core.py 'BaseCommand' # filter by path
+​```
 
-graveyard interesting             # the launch view: biggest, zombies, bloodiest
+**`interesting`** — the launch view. Biggest, zombies, bloodiest, all on one screen.
 
-graveyard show 838                # one corpse in full, syntax-highlighted
-graveyard show 838 --head 30      # ...truncated
-graveyard show 838 --no-code      # ...just the tombstone
-```
+**`show`** — one corpse in full, syntax-highlighted.
 
-The index lives in `.graveyard/graveyard.db` inside your repo. We add `.graveyard/` to `.gitignore` for you on first index — no risk of accidentally shipping someone else's git archaeology.
+​```bash
+graveyard show 943                # the original click.py
+graveyard show 943 --head 30      # truncate
+graveyard show 943 --no-code      # just the tombstone
+​```
 
-## what counts as a death
+The index lives in `.graveyard/graveyard.db` inside your repo. `.graveyard/` is added to your `.gitignore` automatically on first run — no risk of accidentally committing someone else's git archaeology.
+
+## What counts as a death
 
 Not every `-` in a diff is a death. Renames look like deletions. Refactors look like deletions. A function moved between files is a deletion + addition we should probably leave alone.
 
-Heuristic: **a corpse is a contiguous block of 5+ non-trivial lines that disappeared in a commit and didn't show up (fuzzy-matched) elsewhere in the same commit.** Pygit2's rename detection runs first so file renames don't even reach the heuristic. Defaults are the result of squinting; tune with `--min-lines`.
+**Heuristic:** a corpse is a contiguous block of 5+ non-trivial lines that disappeared in a commit and didn't show up (fuzzy-matched) elsewhere in the same commit. Pygit2's rename detection runs first, so file renames don't even reach the heuristic. The defaults are the result of squinting at a lot of `click` history; tune with `--min-lines`.
 
-## roadmap
+## Roadmap
 
-- **semantic search.** Embed each corpse, embed the query, cosine-similarity. Local model (fastembed), no API calls, no keys. "find me the old rate limiter" should actually surface the old rate limiter, even if the variable was named `throttle_check`.
-- **serve.** Local web UI, dark mode (it's a graveyard), search bar, click a corpse to see details. No backend hosted anywhere — `graveyard serve` runs locally against your `.graveyard/graveyard.db`.
+**v2 — semantic search.** `graveyard search --semantic "the old rate limiter"` should surface it even if the variable was named `throttle_check`. Local embeddings (fastembed), no API calls, no keys, no cloud.
 
-## license
+**v2 — `graveyard serve`.** A local web UI. Dark mode (it's a graveyard). Search bar, click a corpse to see its tombstone. Runs against your local `.graveyard/graveyard.db` — nothing leaves your machine.
+
+## License
 
 MIT. Dig responsibly.
