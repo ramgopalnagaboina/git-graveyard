@@ -8,7 +8,25 @@ Every codebase is a graveyard. The auth system you ripped out, the caching layer
 
 ![graveyard interesting running on facebook/react](https://github.com/ramgopalnagaboina/git-graveyard/releases/download/v0.0.1/hero.png)
 
-> Running `graveyard interesting` on [`pallets/click`](https://github.com/pallets/click) surfaces the exact commit where `click.py` stopped being a 1,686-line script and became a package — on April 26, 2014. You can read the whole original file with `graveyard show 943`. That's the pitch.
+> Running `graveyard interesting` on [`facebook/react`](https://github.com/facebook/react) surfaces the day they deleted a 9,031-line **experimental Rust port of the React compiler**. The eulogy in the commit message ends with: *"As Tomo always says: always bet on JavaScript."* That's the pitch.
+
+---
+
+## What it dug up in `facebook/react`
+
+A few real findings from one `graveyard interesting` run on the React repo (last 10,000 commits):
+
+- 🪦 **The Rust port** — 9,031 lines of `compiler/crates/react_estree/src/generated.rs`, deleted Jan 24 2025 ([show](https://github.com/ramgopalnagaboina/git-graveyard/releases/download/v0.0.1/show-rust-port.png)). React had an experimental Rust rewrite of the compiler. It got shelved.
+- ⚱️ **The reconciler fork ending** — on a single day in Dec 2022, four `*.new.js` files in `react-reconciler` (`ReactFiberCommitWork`, `ReactFiberBeginWork`, `ReactFiberHooks`, `ReactFiberWorkLoop`) lost ~16,000 lines combined. The end of a two-year experiment maintaining two reconcilers in parallel during the React 18 rollout. They show up again in *zombie files* (each one died 9–14 separate times) and *bloodiest files* (300+ deletions each).
+- 💀 **`useMutableSource`** — Sept 2021. 2,098 lines of test code deleted with the commit message "This API was replaced by useSyncExternalStore." An entire React 18 alpha API that never shipped; if you wrote a state library against early React 18, you wrote against this.
+
+Try it on your own repo:
+
+```sh
+cd /path/to/anything
+graveyard index --limit 10000
+graveyard interesting
+```
 
 ---
 
