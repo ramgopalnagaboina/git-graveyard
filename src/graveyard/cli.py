@@ -258,5 +258,75 @@ def interesting(limit: int) -> None:
     console.print("[dim]use[/] [bold]graveyard show <id>[/] [dim]to see any of these in full.[/]")
 
 
+@cli.command()
+@click.argument("corpse_id", type=int)
+@click.option("--no-code", is_flag=True, help="Skip the code body — just the tombstone.")
+@click.option("--head", type=int, default=None, help="Show only the first N lines of the corpse.")
+@click.option("--theme", default="monokai", show_default=True, help="Pygments theme for syntax highlighting.")
+def show(corpse_id: int, no_code: bool, head: int | None, theme: str) -> None:
+    """Show a single corpse in full — tombstone + code."""
+    from rich.syntax import Syntax  # local import keeps `--help` snappy
+
+    from .render import lexer_for
+
+    _, conn = _open_db_or_die()
+    row = conn.execute("SELECT * FROM corpses WHERE id = ?", (corpse_id,)).fetchone()
+    if row is None:
+        raise click.ClickException(f"no corpse with id {corpse_id}")
+
+    # ─── tombstone ───
+    console.print(f"[magenta]🪦 corpse #{row['id']}[/]")
+    console.print(f"[dim]{'─' * 60}[/]")
+    console.print(f"  [dim]file   [/]  [cyan]{row['file_path']}[/]")
+    console.print(
+        f"  [dim]lines  [/]  L{row['start_line']}–{row['end_line']} "
+        f"[dim]({row['line_count']} line{'s' if row['line_count'] != 1 else ''})[/]"
+    )
+    console.print(
+        f"  [dim]buried [/]  {fmt_date(row['commit_time'])} "
+        f"[dim]({fmt_when(row['commit_time'])})[/]  by [bold]{row['author_name']}[/]"
+    )
+    console.print(
+        f"  [dim]commit [/]  [yellow]{row['commit_short']}[/]  "
+        f'"[italic]{(row["commit_subject"] or "").strip()}[/]"'
+    )
+    if row["parent_sha"]:
+        console.print(f"  [dim]parent [/]  {row['parent_sha'][:8]}")
+
+    body = (row["commit_message"] or "").strip()
+    subject = (row["commit_subject"] or "").strip()
+    if body and body != subject:
+        rest = body[len(subject):].strip()
+        if rest:
+            console.print(f"[dim]{'─' * 60}[/]")
+            for line in rest.splitlines():
+                console.print(f"  [dim]│[/] {line}")
+
+    if no_code:
+        return
+
+    # ─── code ───
+    console.print(f"[dim]{'─' * 60}[/]")
+    code = row["code"]
+    truncated_lines = 0
+    if head is not None and head > 0:
+        all_lines = code.splitlines(keepends=True)
+        if len(all_lines) > head:
+            truncated_lines = len(all_lines) - head
+            code = "".join(all_lines[:head])
+
+    syntax = Syntax(
+        code.rstrip("\n"),
+        lexer_for(row["file_path"]),
+        theme=theme,
+        line_numbers=True,
+        start_line=row["start_line"],
+        word_wrap=False,
+    )
+    console.print(syntax)
+    if truncated_lines:
+        console.print(f"[dim]…(+{truncated_lines} more line{'s' if truncated_lines != 1 else ''} — pass --head 0 to disable)[/]")
+
+
 if __name__ == "__main__":
     cli()
