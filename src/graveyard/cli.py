@@ -9,6 +9,8 @@ from rich.console import Console
 from . import __version__
 from . import db as dbmod
 from . import indexer
+from . import search as search_mod
+from .render import fmt_date, fmt_when
 
 console = Console(stderr=False)
 
@@ -109,6 +111,85 @@ def index(limit: int, all_commits: bool, min_lines: int, rebuild: bool) -> None:
     if stats.commits_skipped_merge:
         console.print(f"   [dim]({stats.commits_skipped_merge} merge(s) skipped)[/dim]")
     console.print(f"   [dim]db: {db_path.relative_to(repo_root)}[/dim]")
+
+
+def _open_db_or_die() -> tuple[Path, "sqlite3.Connection"]:  # type: ignore[name-defined]
+    try:
+        repo_root, db_path = _db_path_for_cwd()
+    except FileNotFoundError as e:
+        raise click.ClickException(str(e))
+    if not db_path.exists():
+        raise click.ClickException(
+            "no graveyard here yet. run `graveyard index` first."
+        )
+    return repo_root, dbmod.connect(db_path)
+
+
+@cli.command()
+@click.argument("query")
+@click.option("--limit", default=20, show_default=True, help="Max corpses to return.")
+@click.option("--case-sensitive", "-c", is_flag=True, help="Case-sensitive match.")
+@click.option("--regex", "-r", is_flag=True, help="Treat the query as a Python regex.")
+@click.option("--file", "file_filter", metavar="SUBSTR", help="Only corpses whose path contains SUBSTR.")
+@click.option("--author", "author_filter", metavar="SUBSTR", help="Only corpses by an author containing SUBSTR.")
+@click.option("--context", default=1, show_default=True, help="Lines of context around each match.")
+def search(
+    query: str,
+    limit: int,
+    case_sensitive: bool,
+    regex: bool,
+    file_filter: str | None,
+    author_filter: str | None,
+    context: int,
+) -> None:
+    """Search the dead. Substring by default; --regex for patterns."""
+    _, conn = _open_db_or_die()
+    try:
+        matches = search_mod.search(
+            conn,
+            query,
+            limit=limit,
+            regex=regex,
+            case_sensitive=case_sensitive,
+            file_filter=file_filter,
+            author_filter=author_filter,
+            context=context,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    if not matches:
+        console.print(f"[dim]no corpses match[/] [bold]{query!r}[/]")
+        return
+
+    console.print(
+        f"[magenta]🪦[/] [bold]{len(matches)}[/] corpse"
+        f"{'s' if len(matches) != 1 else ''} matching [bold]{query!r}[/]\n"
+    )
+    for m in matches:
+        c = m.corpse
+        header = (
+            f"[bold]#{c['id']}[/]  [cyan]{c['file_path']}[/]"
+            f"  [dim]L{c['start_line']}-{c['end_line']} · "
+            f"{c['line_count']} line{'s' if c['line_count'] != 1 else ''} · "
+            f"{c['commit_short']} · {c['author_name']} · "
+            f"{fmt_date(c['commit_time'])} ({fmt_when(c['commit_time'])})[/]"
+        )
+        console.print(header)
+        if c["commit_subject"]:
+            subj = c["commit_subject"][:80]
+            console.print(f'   [italic dim]"{subj}"[/]')
+        for lineno, line, is_match in m.snippet_lines:
+            marker = "[red]›[/]" if is_match else " "
+            rendered = (
+                search_mod.highlight(line, query, regex, case_sensitive)
+                if is_match
+                else line.replace("[", "\\[")
+            )
+            console.print(f"   [dim]{lineno:>5}[/] {marker} {rendered}")
+        if m.truncated:
+            console.print(f"   [dim]…(+{m.truncated} more matching line{'s' if m.truncated != 1 else ''})[/]")
+        console.print()
 
 
 if __name__ == "__main__":
